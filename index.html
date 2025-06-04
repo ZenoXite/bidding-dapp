@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bidding DApp</title>
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.7.5/dist/web3.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        button {
+            padding: 10px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        input {
+            padding: 8px;
+            margin: 5px;
+            width: 200px;
+        }
+        #status {
+            margin-top: 20px;
+            color: #333;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+    </style>
+</head>
+<body>
+    <h1>Bidding DApp</h1>
+    <div>
+        <button id="connectButton">Connect to MetaMask</button>
+        <p id="accountStatus">Not connected</p>
+    </div>
+    <div>
+        <h2>Place a Bid</h2>
+        <input type="number" id="bidAmount" placeholder="Enter bid amount (ETH)" step="0.01">
+        <button id="bidButton" disabled>Place Bid</button>
+        <p id="bidStatus"></p>
+    </div>
+    <div>
+        <h2>Withdraw Funds</h2>
+        <button id="withdrawButton" disabled>Withdraw</button>
+        <p id="withdrawStatus"></p>
+    </div>
+    <div>
+        <h2>Admin: Check Winning Status</h2>
+        <button id="checkStatusButton" disabled>Check Winning Status</button>
+        <p id="winningStatus"></p>
+    </div>
+    <div id="status"></div>
+
+    <script>
+        // Replace with your deployed contract address
+        const contractAddress = "0x5B5115C15795eC55F07e39A87C9045179aDD0999";
+        const contractABI = [
+            {
+                "inputs": [{"internalType": "uint256", "name": "_biddingDuration", "type": "uint256"}],
+                "stateMutability": "nonpayable",
+                "type": "constructor"
+            },
+            {
+                "anonymous": false,
+                "inputs": [
+                    {"indexed": true, "internalType": "address", "name": "bidder", "type": "address"},
+                    {"indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256"}
+                ],
+                "name": "NewHighestBid",
+                "type": "event"
+            },
+            {
+                "anonymous": false,
+                "inputs": [
+                    {"indexed": true, "internalType": "address", "name": "bidder", "type": "address"},
+                    {"indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256"}
+                ],
+                "name": "Withdrawal",
+                "type": "event"
+            },
+            {
+                "inputs": [],
+                "name": "admin",
+                "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "biddingDeadline",
+                "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "getWinningStatus",
+                "outputs": [
+                    {"internalType": "address", "name": "", "type": "address"},
+                    {"internalType": "uint256", "name": "", "type": "uint256"}
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "highestBid",
+                "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "highestBidder",
+                "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [{"internalType": "address", "name": "", "type": "address"}],
+                "name": "pendingWithdrawals",
+                "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "withdraw",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "stateMutability": "payable",
+                "type": "receive"
+            }
+        ];
+
+        let web3, contract, userAccount;
+
+        async function init() {
+            const connectButton = document.getElementById('connectButton');
+            const bidButton = document.getElementById('bidButton');
+            const withdrawButton = document.getElementById('withdrawButton');
+            const checkStatusButton = document.getElementById('checkStatusButton');
+            const accountStatus = document.getElementById('accountStatus');
+            const bidStatus = document.getElementById('bidStatus');
+            const withdrawStatus = document.getElementById('withdrawStatus');
+            const winningStatus = document.getElementById('winningStatus');
+            const status = document.getElementById('status');
+
+            // Check for MetaMask
+            if (typeof window.ethereum !== 'undefined') {
+                web3 = new Web3(window.ethereum);
+                contract = new web3.eth.Contract(contractABI, contractAddress);
+
+                connectButton.addEventListener('click', async () => {
+                    try {
+                        const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+                        userAccount = accounts[0];
+                        accountStatus.textContent = `Connected: ${userAccount}`;
+                        bidButton.disabled = false;
+                        withdrawButton.disabled = false;
+
+                        // Check if user is admin
+                        const admin = await contract.methods.admin().call();
+                        if (userAccount.toLowerCase() === admin.toLowerCase()) {
+                            checkStatusButton.disabled = false;
+                        }
+                    } catch (error) {
+                        accountStatus.textContent = `Error: ${error.message}`;
+                        accountStatus.classList.add('error');
+                    }
+                });
+
+                bidButton.addEventListener('click', async () => {
+                    const bidAmount = document.getElementById('bidAmount').value;
+                    if (!bidAmount || bidAmount <= 0) {
+                        bidStatus.textContent = 'Please enter a valid bid amount.';
+                        bidStatus.classList.add('error');
+                        return;
+                    }
+
+                    try {
+                        const weiAmount = web3.utils.toWei(bidAmount, 'ether');
+                        await contract.methods.receive().send({
+                            from: userAccount,
+                            value: weiAmount
+                        });
+                        bidStatus.textContent = `Bid of ${bidAmount} ETH placed successfully!`;
+                        bidStatus.classList.add('success');
+                    } catch (error) {
+                        bidStatus.textContent = `Error: ${error.message}`;
+                        bidStatus.classList.add('error');
+                    }
+                });
+
+                withdrawButton.addEventListener('click', async () => {
+                    try {
+                        await contract.methods.withdraw().send({ from: userAccount });
+                        withdrawStatus.textContent = 'Withdrawal successful!';
+                        withdrawStatus.classList.add('success');
+                    } catch (error) {
+                        withdrawStatus.textContent = `Error: ${error.message}`;
+                        withdrawStatus.classList.add('error');
+                    }
+                });
+
+                checkStatusButton.addEventListener('click', async () => {
+                    try {
+                        const result = await contract.methods.getWinningStatus().call({ from: userAccount });
+                        const [highestBidder, highestBid] = result;
+                        const highestBidETH = web3.utils.fromWei(highestBid, 'ether');
+                        winningStatus.textContent = `Highest Bidder: ${highestBidder}, Bid: ${highestBidETH} ETH`;
+                        winningStatus.classList.add('success');
+                    } catch (error) {
+                        winningStatus.textContent = `Error: ${error.message}`;
+                        winningStatus.classList.add('error');
+                    }
+                });
+
+                // Check bidding deadline
+                setInterval(async () => {
+                    try {
+                        const deadline = await contract.methods.biddingDeadline().call();
+                        const currentTime = Math.floor(Date.now() / 1000);
+                        if (currentTime > deadline) {
+                            status.textContent = 'Bidding is over.';
+                            bidButton.disabled = true;
+                        } else {
+                            const timeLeft = deadline - currentTime;
+                            status.textContent = `Time left: ${Math.floor(timeLeft / 60)} minutes ${timeLeft % 60} seconds`;
+                        }
+                    } catch (error) {
+                        status.textContent = `Error: ${error.message}`;
+                    }
+                }, 1000);
+            } else {
+                accountStatus.textContent = 'MetaMask not detected. Please install MetaMask.';
+                accountStatus.classList.add('error');
+            }
+        }
+
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
